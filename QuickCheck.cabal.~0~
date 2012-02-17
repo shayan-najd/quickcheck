@@ -90,11 +90,6 @@ library
     -- file, I think...
     if impl(ghc < 7)
       Extensions: GeneralizedNewtypeDeriving, MultiParamTypeClasses, Rank2Types, TypeOperators
-
-    if impl(ghc >= 7.2.1)
-      Cpp-Options: -DGENERICS
-      Build-Depends: ghc-prim >= 0.2
-
   else
     -- If your Haskell compiler can cope without some of these, please
     -- send a message to the QuickCheck mailing list!
@@ -103,7 +98,6 @@ library
       cpp-options: -DNO_ST_MONAD -DNO_MULTI_PARAM_TYPE_CLASSES
   Other-Modules:
     Test.QuickCheck.Exception
-  GHC-options:
 
   if impl(ghc >= 7.2.1)
     cpp-options: -DGENERICS
