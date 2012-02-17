@@ -107,6 +107,7 @@ import Data.Word(Word, Word8, Word16, Word32, Word64)
 
 #ifdef GENERICS
 -- | Random generation and shrinking of values.
+--
 -- A default 'arbitrary' definition is provided using GHC.Generics. If
 -- your datatype is an instance of 'Generic', it should enough to define
 -- an instance without body:
@@ -117,6 +118,9 @@ import Data.Word(Word, Word8, Word16, Word32, Word64)
 --     
 -- instance Arbitrary a => Arbitrary (Tree a)
 -- @
+--
+-- The default 'arbitrary' is defined as @genericArbitrary 2@. See
+-- 'genericArbitrary' for more info.
 -- 
 -- There is no default 'shrink' since we want to keep the empty list default,
 -- but 'genericShrink' is provided.
@@ -638,14 +642,42 @@ instance GArbitrary f => GArbitrary (M1 i c f) where
 instance Arbitrary a => GArbitrary (K1 i a) where
   gArbitrary _ _ = K1 <$> arbitrary
 
-genericArbitrary :: (Generic a, GArbitrary (Rep a)) => Int -> Gen a
+-- | 'Gen' for generic instances in which each constructor has equal probability
+-- of being chosen.
+genericArbitrary ::
+  (Generic a, GArbitrary (Rep a))
+  => Int -- ^ The number of constructors.
+  -> Gen a
 genericArbitrary cons = genericArbitraryFreq (go cons)
   where
     fi = fromIntegral
-    go n | n < 2     = [1.0]
+    go n | n < 2     = []
          | otherwise = (1.0 / fi n) : go (n - 1)
 
-genericArbitraryFreq :: (Generic a, GArbitrary (Rep a)) => [Double] -> Gen a
+-- | This functions produces a 'Gen' for 'Generic' instances.
+genericArbitraryFreq ::
+  (Generic a, GArbitrary (Rep a))
+  => [Double]
+  -- ^ This list defines what's the probablity of choosing constructors in
+  -- sum types. For examples with the type
+  --
+  -- @
+  -- data Tree a
+  --     = Leaf a
+  --     | Branch (Tree a) (Tree a)
+  --     | Node (Tree a) a (Tree a)
+  -- @
+  --
+  -- The list should have 2 doubles: the first one will determine
+  -- the probability of choosing the @Leaf@ constructor, the second the
+  -- probability of choosing the @Branch@ constructor given that that @Leaf@
+  -- hasn't been chosen. A third element is not needed since if we haven't
+  -- chose @Leaf@ or @Branch@ there is no other choice.
+  --
+  -- For example, @[1.0, 0]@ would always choose @Leaf@, @[0.5, 0.5]@ would
+  -- chose @Leaf@ half of the time, and @Branch@ and @Node@ a quarter of the
+  -- time.
+  -> Gen a
 genericArbitraryFreq ds = let fq = makeFreq ds in fmap to (gArbitrary fq fq)
 
 class GShrink f b where
@@ -670,6 +702,10 @@ instance GShrink (K1 i a) a where
 instance GShrink (K1 i a) b where
   gShrink (K1 _) = []
 
+-- | Generic shrink. Shrink in this context means "remove a constructor", 
+-- so inner values are not shrinked.
+-- In our @Tree@ example, a @Leaf 10@ would produce an empty list
+-- instead of shrinking the @10@.
 genericShrink :: (Generic a, GShrink (Rep a) a) => a -> [a]
 genericShrink = gShrink . from
 
