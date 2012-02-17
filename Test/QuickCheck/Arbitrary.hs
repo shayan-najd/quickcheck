@@ -1,12 +1,21 @@
 {-# LANGUAGE CPP #-}
 #ifdef GENERICS
-{-# LANGUAGE DefaultSignatures, FlexibleContexts, TypeOperators #-}
+{-# LANGUAGE DefaultSignatures
+           , FlexibleContexts
+           , TypeOperators
+           , MultiParamTypeClasses
+           , FlexibleInstances
+ #-}
 #endif
 
 module Test.QuickCheck.Arbitrary
   (
   -- * Arbitrary and CoArbitrary classes
     Arbitrary(..)
+#ifdef GENERICS
+  , genericArbitrary
+  , genericShrink
+#endif
   , CoArbitrary(..)
 
   -- ** Helper functions for implementing arbitrary
@@ -105,7 +114,7 @@ class Arbitrary a where
 
 #ifdef GENERICS
   default arbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
-  arbitrary = fmap to gArbitrary
+  arbitrary = genericArbitrary
 
 class GArbitrary f where
   gArbitrary :: Gen (f a)
@@ -113,21 +122,47 @@ class GArbitrary f where
 instance GArbitrary U1 where
   gArbitrary = return U1
 
-instance (GArbitrary a, GArbitrary b) => GArbitrary (a :*: b) where
+instance (GArbitrary f, GArbitrary g) => GArbitrary (f :*: g) where
   gArbitrary = (:*:) <$> gArbitrary <*> gArbitrary
 
-instance (GArbitrary a, GArbitrary b) => GArbitrary (a :+: b) where
+instance (GArbitrary f, GArbitrary g) => GArbitrary (f :+: g) where
   gArbitrary = do
       b <- choose (False, True)
       if b then L1 <$> gArbitrary else R1 <$> gArbitrary
 
-instance GArbitrary a => GArbitrary (M1 i c a) where
+instance GArbitrary f => GArbitrary (M1 i c f) where
   gArbitrary = M1 <$> gArbitrary
 
 instance Arbitrary a => GArbitrary (K1 i a) where
   gArbitrary = K1 <$> arbitrary
-#else
-  arbitrary = error "no default generator"
+
+genericArbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
+genericArbitrary = fmap to gArbitrary
+
+class GShrink f b where
+  gShrink :: f a -> [b]
+
+instance GShrink U1 a where
+  gShrink U1 = []
+  
+instance (GShrink f b, GShrink g b) => GShrink (f :*: g) b where
+  gShrink (l :*: r) = gShrink l ++ gShrink r
+
+instance (GShrink f b, GShrink g b) => GShrink (f :+: g) b where
+  gShrink (L1 x) = gShrink x
+  gShrink (R1 x) = gShrink x
+
+instance GShrink f b => GShrink (M1 i c f) b where
+  gShrink (M1 x) = gShrink x
+
+instance GShrink (K1 i a) a where
+  gShrink (K1 x) = [x]
+
+instance GShrink (K1 i a) b where
+  gShrink (K1 _) = []
+
+genericShrink :: (Generic a, GShrink (Rep a) a) => a -> [a]
+genericShrink = gShrink . from
 #endif
 
 -- instances
