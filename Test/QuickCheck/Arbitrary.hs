@@ -40,6 +40,7 @@ module Test.QuickCheck.Arbitrary
 #ifdef GENERICS
   -- ** Generic functions using GHC.Generics
   , genericArbitrary
+  , genericArbitraryFreq
   , genericShrink
   , genericCoarbitrary
 #endif
@@ -134,7 +135,7 @@ class Arbitrary a where
 
 #ifdef GENERICS
   default arbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
-  arbitrary = genericArbitrary
+  arbitrary = genericArbitrary 2
 #endif
 
 -- instances
@@ -606,30 +607,46 @@ vector k = vectorOf k arbitrary
 orderedList :: (Ord a, Arbitrary a) => Gen [a]
 orderedList = sort `fmap` arbitrary
 
+
 #ifdef GENERICS
 
+data Freq = Freq Double Freq
+
+makeFreq :: [Double] -> Freq
+makeFreq = go . cycle
+  where
+    go (d : ds) = Freq d $ go ds
+    go []       = error "This won't happen"
+
 class GArbitrary f where
-  gArbitrary :: Gen (f a)
+  gArbitrary :: Freq -> Freq -> Gen (f a)
 
 instance GArbitrary U1 where
-  gArbitrary = return U1
+  gArbitrary _ _ = return U1
 
 instance (GArbitrary f, GArbitrary g) => GArbitrary (f :*: g) where
-  gArbitrary = (:*:) <$> gArbitrary <*> gArbitrary
+  gArbitrary st _ = (:*:) <$> gArbitrary st st <*> gArbitrary st st
 
 instance (GArbitrary f, GArbitrary g) => GArbitrary (f :+: g) where
-  gArbitrary = do
-      b <- choose (False, True)
-      if b then L1 <$> gArbitrary else R1 <$> gArbitrary
+  gArbitrary st (Freq f fq)  = do
+      b <- choose (0, 1)
+      if b <= f then L1 <$> gArbitrary st fq else R1 <$> gArbitrary st fq
 
 instance GArbitrary f => GArbitrary (M1 i c f) where
-  gArbitrary = M1 <$> gArbitrary
+  gArbitrary st _ = M1 <$> gArbitrary st st
 
 instance Arbitrary a => GArbitrary (K1 i a) where
-  gArbitrary = K1 <$> arbitrary
+  gArbitrary _ _ = K1 <$> arbitrary
 
-genericArbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
-genericArbitrary = fmap to gArbitrary
+genericArbitrary :: (Generic a, GArbitrary (Rep a)) => Int -> Gen a
+genericArbitrary cons = genericArbitraryFreq (go cons)
+  where
+    fi = fromIntegral
+    go n | n < 2     = [1.0]
+         | otherwise = (1.0 / fi n) : go (n - 1)
+
+genericArbitraryFreq :: (Generic a, GArbitrary (Rep a)) => [Double] -> Gen a
+genericArbitraryFreq ds = let fq = makeFreq ds in fmap to (gArbitrary fq fq)
 
 class GShrink f b where
   gShrink :: f a -> [b]
