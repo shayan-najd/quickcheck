@@ -704,7 +704,8 @@ instance GShrink (K1 i a) b where
 
 -- | Generic shrink. Shrink in this context means "remove a constructor", 
 -- so inner values are not shrinked.
--- In our @Tree@ example, a @Leaf 10@ would produce an empty list
+-- 
+-- In our @Tree@ example, @genericShrink (Leaf 10)@ would produce an empty list
 -- instead of shrinking the @10@.
 genericShrink :: (Generic a, GShrink (Rep a) a) => a -> [a]
 genericShrink = gShrink . from
