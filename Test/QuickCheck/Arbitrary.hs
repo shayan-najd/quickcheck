@@ -41,6 +41,7 @@ module Test.QuickCheck.Arbitrary
   -- ** Generic functions using GHC.Generics
   , genericArbitrary
   , genericShrink
+  , genericCoarbitrary
 #endif
   )
  where
@@ -424,7 +425,13 @@ shrinkRealFrac x =
 --------------------------------------------------------------------------
 -- ** CoArbitrary
 
+#ifdef GENERICS
 -- | Used for random generation of functions.
+-- As in 'Arbitrary', a default 'coarbitrary' is provided for instances of
+-- 'Generic'.
+#else
+-- | Used for random generation of functions.
+#endif
 class CoArbitrary a where
   -- | Used to generate a function of type @a -> c@. The implementation
   -- should use the first argument to perturb the random generator
@@ -432,7 +439,11 @@ class CoArbitrary a where
   -- is then used to generate the function result.
   -- You can often use 'variant' and '><' to implement
   -- 'coarbitrary'.
-  coarbitrary :: a -> Gen c -> Gen c
+  coarbitrary :: a -> Gen b -> Gen b
+#ifdef GENERICS
+  default coarbitrary :: (Generic a, GCoArbitrary (Rep a)) => a -> Gen b -> Gen b
+  coarbitrary = gCoarbitrary . from
+#endif
 
 {-
   -- GHC definition:
@@ -644,6 +655,28 @@ instance GShrink (K1 i a) b where
 
 genericShrink :: (Generic a, GShrink (Rep a) a) => a -> [a]
 genericShrink = gShrink . from
+
+class GCoArbitrary f where
+  gCoarbitrary :: f b -> Gen a -> Gen a
+
+instance GCoArbitrary U1 where
+  gCoarbitrary U1        = id
+
+instance (GCoArbitrary f, GCoArbitrary g) => GCoArbitrary (f :*: g) where
+  gCoarbitrary (l :*: r) = gCoarbitrary l >< gCoarbitrary r
+
+instance (GCoArbitrary f, GCoArbitrary g) => GCoArbitrary (f :+: g) where
+  gCoarbitrary (L1 x) = variant 0    . gCoarbitrary x
+  gCoarbitrary (R1 x) = variant (-1) . gCoarbitrary x
+
+instance GCoArbitrary f => GCoArbitrary (M1 i c f) where
+  gCoarbitrary (M1 x) = gCoarbitrary x
+
+instance CoArbitrary a => GCoArbitrary (K1 i a) where
+  gCoarbitrary (K1 x) = coarbitrary x
+
+genericCoarbitrary :: (Generic a, GCoArbitrary (Rep a)) => a -> Gen b -> Gen b
+genericCoarbitrary = gCoarbitrary . from
 
 #endif
 
