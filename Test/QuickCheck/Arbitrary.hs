@@ -12,10 +12,6 @@ module Test.QuickCheck.Arbitrary
   (
   -- * Arbitrary and CoArbitrary classes
     Arbitrary(..)
-#ifdef GENERICS
-  , genericArbitrary
-  , genericShrink
-#endif
   , CoArbitrary(..)
 
   -- ** Helper functions for implementing arbitrary
@@ -40,6 +36,12 @@ module Test.QuickCheck.Arbitrary
   -- ** Generators which use arbitrary
   , vector      -- :: Arbitrary a => Int -> Gen [a]
   , orderedList -- :: (Ord a, Arbitrary a) => Gen [a]
+    
+#ifdef GENERICS
+  -- ** Generic functions using GHC.Generics
+  , genericArbitrary
+  , genericShrink
+#endif
   )
  where
 
@@ -101,7 +103,24 @@ import Data.Word(Word, Word8, Word16, Word32, Word64)
 --------------------------------------------------------------------------
 -- ** class Arbitrary
 
+#ifdef GENERICS
 -- | Random generation and shrinking of values.
+-- A default 'arbitrary' definition is provided using GHC.Generics. If
+-- your datatype is an instance of 'Generic', it should enough to define
+-- an instance without body:
+-- 
+-- @
+-- data Tree a = Leaf a | Branch (Tree a) (Tree a)
+--     deriving (Generic)
+--     
+-- instance Arbitrary a => Arbitrary (Tree a)
+-- @
+-- 
+-- There is no default 'shrink' since we want to keep the empty list default,
+-- but 'genericShrink' is provided.
+#else
+-- | Random generation and shrinking of values.
+#endif
 class Arbitrary a where
   -- | A generator for values of the given type.
   arbitrary :: Gen a
@@ -115,54 +134,6 @@ class Arbitrary a where
 #ifdef GENERICS
   default arbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
   arbitrary = genericArbitrary
-
-class GArbitrary f where
-  gArbitrary :: Gen (f a)
-
-instance GArbitrary U1 where
-  gArbitrary = return U1
-
-instance (GArbitrary f, GArbitrary g) => GArbitrary (f :*: g) where
-  gArbitrary = (:*:) <$> gArbitrary <*> gArbitrary
-
-instance (GArbitrary f, GArbitrary g) => GArbitrary (f :+: g) where
-  gArbitrary = do
-      b <- choose (False, True)
-      if b then L1 <$> gArbitrary else R1 <$> gArbitrary
-
-instance GArbitrary f => GArbitrary (M1 i c f) where
-  gArbitrary = M1 <$> gArbitrary
-
-instance Arbitrary a => GArbitrary (K1 i a) where
-  gArbitrary = K1 <$> arbitrary
-
-genericArbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
-genericArbitrary = fmap to gArbitrary
-
-class GShrink f b where
-  gShrink :: f a -> [b]
-
-instance GShrink U1 a where
-  gShrink U1 = []
-  
-instance (GShrink f b, GShrink g b) => GShrink (f :*: g) b where
-  gShrink (l :*: r) = gShrink l ++ gShrink r
-
-instance (GShrink f b, GShrink g b) => GShrink (f :+: g) b where
-  gShrink (L1 x) = gShrink x
-  gShrink (R1 x) = gShrink x
-
-instance GShrink f b => GShrink (M1 i c f) b where
-  gShrink (M1 x) = gShrink x
-
-instance GShrink (K1 i a) a where
-  gShrink (K1 x) = [x]
-
-instance GShrink (K1 i a) b where
-  gShrink (K1 _) = []
-
-genericShrink :: (Generic a, GShrink (Rep a) a) => a -> [a]
-genericShrink = gShrink . from
 #endif
 
 -- instances
@@ -623,6 +594,58 @@ vector k = vectorOf k arbitrary
 -- | Generates an ordered list of a given length.
 orderedList :: (Ord a, Arbitrary a) => Gen [a]
 orderedList = sort `fmap` arbitrary
+
+#ifdef GENERICS
+
+class GArbitrary f where
+  gArbitrary :: Gen (f a)
+
+instance GArbitrary U1 where
+  gArbitrary = return U1
+
+instance (GArbitrary f, GArbitrary g) => GArbitrary (f :*: g) where
+  gArbitrary = (:*:) <$> gArbitrary <*> gArbitrary
+
+instance (GArbitrary f, GArbitrary g) => GArbitrary (f :+: g) where
+  gArbitrary = do
+      b <- choose (False, True)
+      if b then L1 <$> gArbitrary else R1 <$> gArbitrary
+
+instance GArbitrary f => GArbitrary (M1 i c f) where
+  gArbitrary = M1 <$> gArbitrary
+
+instance Arbitrary a => GArbitrary (K1 i a) where
+  gArbitrary = K1 <$> arbitrary
+
+genericArbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
+genericArbitrary = fmap to gArbitrary
+
+class GShrink f b where
+  gShrink :: f a -> [b]
+
+instance GShrink U1 a where
+  gShrink U1 = []
+  
+instance (GShrink f b, GShrink g b) => GShrink (f :*: g) b where
+  gShrink (l :*: r) = gShrink l ++ gShrink r
+
+instance (GShrink f b, GShrink g b) => GShrink (f :+: g) b where
+  gShrink (L1 x) = gShrink x
+  gShrink (R1 x) = gShrink x
+
+instance GShrink f b => GShrink (M1 i c f) b where
+  gShrink (M1 x) = gShrink x
+
+instance GShrink (K1 i a) a where
+  gShrink (K1 x) = [x]
+
+instance GShrink (K1 i a) b where
+  gShrink (K1 _) = []
+
+genericShrink :: (Generic a, GShrink (Rep a) a) => a -> [a]
+genericShrink = gShrink . from
+
+#endif
 
 --------------------------------------------------------------------------
 -- the end.
