@@ -24,26 +24,31 @@ import Control.Applicative
 --------------------------------------------------------------------------
 -- ** Generator type
 
-newtype Gen a = MkGen{ unGen :: StdGen -> Int -> a }
+newtype Gen a = MkGen{ runGen :: StdGen -> Int -> (a, StdGen) }
+
+unGen :: Gen a -> StdGen -> Int -> a
+unGen g r n = fst (runGen g r n)
+
+mkGen :: (StdGen -> Int -> a) -> Gen a
+mkGen f = MkGen (\r n ->
+  let (r1, r2) = split r
+  in (f r1 n, r2))
 
 instance Functor Gen where
-  fmap f (MkGen h) =
-    MkGen (\r n -> f (h r n))
-
+  fmap f x = x >>= return . f
+  
 instance Applicative Gen where
   pure  = return
   (<*>) = ap
 
 instance Monad Gen where
   return x =
-    MkGen (\_ _ -> x)
+    MkGen (\s _ -> (x, s))
 
   MkGen m >>= k =
     MkGen (\r n ->
-      let (r1,r2)  = split r
-          MkGen m' = k (m r1 n)
-       in m' r2 n
-    )
+      let (x, r') = m r n
+      in runGen (k x) r' n)
 
 --------------------------------------------------------------------------
 -- ** Primitive generator combinators
@@ -69,18 +74,22 @@ resize n (MkGen m) = MkGen (\r _ -> m r n)
 
 -- | Generates a random element in the given inclusive range.
 choose :: Random a => (a,a) -> Gen a
-choose rng = MkGen (\r _ -> let (x,_) = randomR rng r in x)
+choose rng = MkGen (\r _ -> randomR rng r)
+
+-- | Makes the generator lazy, so it can be used to generate an infinite value.
+infinite :: Gen a -> Gen a
+infinite m = mkGen (unGen m)
 
 -- | Promotes a monadic generator to a generator of monadic values.
 promote :: Monad m => m (Gen a) -> Gen (m a)
-promote m = MkGen (\r n -> liftM (\(MkGen m') -> m' r n) m)
+promote m = mkGen (\r n -> liftM (\m' -> unGen m' r n) m)
 
 -- | Generates some example values.
 sample' :: Gen a -> IO [a]
-sample' (MkGen m) =
+sample' g =
   do rnd0 <- newStdGen
      let rnds rnd = rnd1 : rnds rnd2 where (rnd1,rnd2) = split rnd
-     return [(m r n) | (r,n) <- rnds rnd0 `zip` [0,2..20] ]
+     return [unGen g r n | (r,n) <- rnds rnd0 `zip` [0,2..20] ]
 
 -- | Generates some example values and prints them to 'stdout'.
 sample :: Show a => Gen a -> IO ()
