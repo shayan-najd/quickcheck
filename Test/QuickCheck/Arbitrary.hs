@@ -130,17 +130,17 @@ import Data.Word(Word, Word8, Word16, Word32, Word64)
 class Arbitrary a where
   -- | A generator for values of the given type.
   arbitrary :: Gen a
+#ifdef GENERICS
+  default arbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
+  arbitrary = genericArbitrary 2
+#else
   arbitrary = error "no default generator"
+#endif
   
   -- | Produces a (possibly) empty list of all the possible
   -- immediate shrinks of the given value.
   shrink :: a -> [a]
   shrink _ = []
-
-#ifdef GENERICS
-  default arbitrary :: (Generic a, GArbitrary (Rep a)) => Gen a
-  arbitrary = genericArbitrary 2
-#endif
 
 -- instances
 
