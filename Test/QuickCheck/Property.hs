@@ -170,6 +170,8 @@ data Result
   , abort       :: Bool           -- ^ if True, the test should not be repeated
   , stamp       :: [(String,Int)] -- ^ the collected values for this test case
   , callbacks   :: [Callback]     -- ^ the callbacks for this test case
+  , tests       :: [String]
+  , shrinkedTests :: [String]
   }
 
 result :: Result
@@ -182,6 +184,8 @@ result =
   , abort       = False
   , stamp       = []
   , callbacks   = []
+  , shrinkedTests = []                
+  , tests       = []                  
   }
 
 exception :: String -> AnException -> Result
@@ -237,14 +241,16 @@ mapSize f p = sized ((`resize` property p) . f)
 -- | Shrinks the argument to property if it fails. Shrinking is done
 -- automatically for most types. This is only needed when you want to
 -- override the default behavior.
-shrinking :: Testable prop =>
+shrinking :: (Testable prop,Show a) =>
              (a -> [a])  -- ^ 'shrink'-like function.
           -> a           -- ^ The original argument
           -> (a -> prop) -> Property
 shrinking shrinker x0 pf = fmap (MkProp . joinRose . fmap unProp) (promote (props x0))
  where
   props x =
-    MkRose (property (pf x)) [ props x' | x' <- shrinker x ]
+    MkRose (mapTotalResult (\res-> res{shrinkedTests= shrinkedTests res ++ [show x]}) $
+	    property (pf x))
+    [ props x' | x' <- shrinker x ]
 
 -- | Disables shrinking for a property altogether.
 noShrinking :: Testable prop => prop -> Property
@@ -256,14 +262,14 @@ callback cb = mapTotalResult (\res -> res{ callbacks = cb : callbacks res })
 
 -- | Prints a message to the terminal as part of the counterexample.
 printTestCase :: Testable prop => String -> prop -> Property
-printTestCase s =
+printTestCase s = mapTotalResult (\res->res{tests = tests res ++ [s]}) . (
   callback $ PostFinalFailure Counterexample $ \st _res -> do
     res <- tryEvaluateIO (putLine (terminal st) s)
     case res of
       Left err ->
         putLine (terminal st) (formatException "Exception thrown by generator" err)
       Right () ->
-        return ()
+        return ())
 
 -- | Performs an 'IO' action after the last failure of a property.
 whenFail :: Testable prop => IO () -> prop -> Property

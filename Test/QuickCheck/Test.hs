@@ -48,11 +48,13 @@ data Result
     { numTests       :: Int            -- ^ number of successful tests performed
     , labels         :: [(String,Int)] -- ^ labels and frequencies found during all tests
     , output         :: String         -- ^ printed output
+    , testCases      :: [[String]] 
     }
   | GaveUp                             -- given up
     { numTests       :: Int            -- ^ number of successful tests performed
     , labels         :: [(String,Int)] -- ^ labels and frequencies found during all tests
     , output         :: String         -- ^ printed output
+    , testCases      :: [[String]]  
     }
   | Failure                            -- failed test run
     { numTests       :: Int            -- ^ number of tests performed
@@ -63,11 +65,14 @@ data Result
     , interrupted    :: Bool           -- ^ did the user press ctrl-C?
     , labels         :: [(String,Int)] -- ^ labels and frequencies found during all successful tests
     , output         :: String         -- ^ printed output
+    , testCases      :: [[String]]
+    , counterExamples :: [String]  
     }
   | NoExpectedFailure                  -- the expected failure did not happen
     { numTests       :: Int            -- ^ number of tests performed
     , labels         :: [(String,Int)] -- ^ labels and frequencies found during all successful tests
     , output         :: String         -- ^ printed output
+    , testCases      :: [[String]]  
     }
  deriving ( Show, Read )
 
@@ -183,11 +188,13 @@ doneTesting st _f =
      if expectedFailure st then
        return Success{ labels = summary st,
                        numTests = numSuccessTests st,
-                       output = theOutput }
+                       output = theOutput, 
+                       testCases = []}
       else
        return NoExpectedFailure{ labels = summary st,
                                  numTests = numSuccessTests st,
-                                 output = theOutput }
+                                 output = theOutput, 
+                                 testCases = []}
 
 giveUp :: State -> (StdGen -> Int -> Prop) -> IO Result
 giveUp st _f =
@@ -203,6 +210,7 @@ giveUp st _f =
      return GaveUp{ numTests = numSuccessTests st
                   , labels   = summary st
                   , output   = theOutput
+                  , testCases = []             
                   }
 
 runATest :: State -> (StdGen -> Int -> Prop) -> IO Result
@@ -225,13 +233,14 @@ runATest st f =
 
      case res of
        MkResult{ok = Just True, stamp = stamp, expect = expect} -> -- successful test
-         do continue doneTesting
-              st{ numSuccessTests           = numSuccessTests st + 1
-                , numRecentlyDiscardedTests = 0
-                , randomSeed                = rnd2
-                , collected                 = stamp : collected st
-                , expectedFailure           = expect
-                } f
+         do r <- continue doneTesting
+                 st{ numSuccessTests           = numSuccessTests st + 1
+                   , numRecentlyDiscardedTests = 0
+                   , randomSeed                = rnd2
+                   , collected                 = stamp : collected st
+                   , expectedFailure           = expect
+                   } f
+            return $ r{testCases = tests res : testCases r}
 
        MkResult{ok = Nothing, expect = expect} -> -- discarded test
          do continue giveUp
@@ -245,12 +254,13 @@ runATest st f =
          do if expect res
               then putPart (terminal st) (bold "*** Failed! ")
               else putPart (terminal st) "+++ OK, failed as expected. "
-            numShrinks <- foundFailure st res ts
+            (numShrinks,tcs) <- foundFailure st res ts
             theOutput <- terminalOutput (terminal st)
             if not (expect res) then
               return Success{ labels = summary st,
                               numTests = numSuccessTests st+1,
-                              output = theOutput }
+                              output = theOutput 
+                            , testCases   = [] }
              else
               return Failure{ usedSeed    = randomSeed st -- correct! (this will be split first)
                             , usedSize    = size
@@ -260,7 +270,9 @@ runATest st f =
                             , reason      = P.reason res
                             , interrupted = P.interrupted res
                             , labels      = summary st
-                            }
+                            , counterExamples = tcs                
+                            , testCases   = []                    
+                            }     
  where
   (rnd1,rnd2) = split (randomSeed st)
 
@@ -323,11 +335,11 @@ success st =
 --------------------------------------------------------------------------
 -- main shrinking loop
 
-foundFailure :: State -> P.Result -> [Rose P.Result] -> IO Int
+foundFailure :: State -> P.Result -> [Rose P.Result] -> IO (Int,[String])
 foundFailure st res ts =
   do localMin st{ numTryShrinks = 0 } res ts
 
-localMin :: State -> P.Result -> [Rose P.Result] -> IO Int
+localMin :: State -> P.Result -> [Rose P.Result] -> IO (Int,[String])
 localMin st res _ | P.interrupted res = localMinFound st res
 localMin st res ts = do
   putTemp (terminal st)
@@ -351,7 +363,7 @@ localMin st res ts = do
          (exception "Exception while generating shrink-list" err) { callbacks = callbacks res }
     Right ts' -> localMin' st res ts'
 
-localMin' :: State -> P.Result -> [Rose P.Result] -> IO Int
+localMin' :: State -> P.Result -> [Rose P.Result] -> IO (Int,[String])
 localMin' st res [] = localMinFound st res
 localMin' st res (t:ts) =
   do -- CALLBACK before_test
@@ -362,7 +374,7 @@ localMin' st res (t:ts) =
       else localMin st{ numTryShrinks    = numTryShrinks st + 1,
                         numTotTryShrinks = numTotTryShrinks st + 1 } res ts
 
-localMinFound :: State -> P.Result -> IO Int
+localMinFound :: State -> P.Result -> IO (Int,[String])
 localMinFound st res =
   do let report = concat [
            "(after " ++ number (numSuccessTests st+1) "test",
@@ -380,7 +392,7 @@ localMinFound st res =
            | msg <- lines (P.reason res)
            ]
      callbackPostFinalFailure st res
-     return (numSuccessShrinks st)
+     return (numSuccessShrinks st,shrinkedTests res)
 
 --------------------------------------------------------------------------
 -- callbacks
