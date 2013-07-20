@@ -223,7 +223,9 @@ instance Arbitrary Integer where
   shrink    = shrinkIntegral
 
 instance Arbitrary Int where
-  arbitrary = arbitrarySizedBoundedIntegral
+  arbitrary =  sized $ \n -> choose (-n,n)
+    -- Shayan: Buggy! temporary use the definition in QC 1.2.0.1
+    -- arbitrarySizedBoundedIntegral
   shrink    = shrinkIntegral
 
 instance Arbitrary Int8 where
